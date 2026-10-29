@@ -1,0 +1,31 @@
+{
+  "tasmota_ips": [
+    "192.168.1.19"
+  ],
+  "timeout_seconds": 600,
+  "poll_interval_seconds": 2.0,
+  "turn_off_on_startup_if_silent": false,
+  "turn_off_on_shutdown": true,
+  "peak_audio_threshold": 0.001,
+  "http_timeout_seconds": 2.5,
+  "log_to_file": true,
+  "log_file": "speaker_guard.log",
+  "asio_detection_enabled": true,
+  "asio_processes": [
+    "Rocksmith2014.exe",
+    "reaper*.exe",
+    "FL64.exe",
+    "FL.exe",
+    "Ableton Live*.exe",
+    "Cubase*.exe",
+    "Studio One.exe",
+    "Bitwig Studio.exe",
+    "ProTools.exe",
+    "GuitarPro*.exe",
+    "AmpliTube*.exe",
+    "Helix*.exe",
+    "Archetype*.exe",
+    "NeuralDSP*.exe",
+    "Voicemeeter*.exe"
+  ]
+}
