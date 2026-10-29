@@ -5,57 +5,57 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tasmota](https://img.shields.io/badge/Compatible-Tasmota%20HTTP%20REST-orange.svg)](https://tasmota.github.io/docs/Commands/)
 
-> **Gestionnaire intelligent et multiplateforme d'alimentation d'enceintes connectées via prises Tasmota.**  
-> Détecte en temps réel l'activité audio du système (Windows WASAPI/ASIO, Linux PipeWire/PulseAudio/ALSA, macOS CoreAudio) et pilote automatiquement l'allumage et l'extinction de vos prises Tasmota.
+> **Smart, lightweight, cross-platform audio-reactive power manager for studio monitors and speakers connected via Tasmota smart plugs.**  
+> Monitors real-time system audio activity (Windows WASAPI/ASIO, Linux PipeWire/PulseAudio/ALSA, macOS CoreAudio) and automatically switches your Tasmota plug(s) ON when audio starts, and OFF after prolonged silence or on system shutdown.
 
 ---
 
-## ✨ Points forts
+## ✨ Features
 
-- 🟢 **Allumage instantané** dès qu'un son est émis par le système (musique, vidéo, jeu, DAW, appel...).
-- ⏳ **Extinction temporisée (10 min par défaut)** : coupure automatique après une période de silence prolongé.
-- 🎛️ **Support ASIO direct** : ne coupe plus vos enceintes de monitoring lors de l'utilisation d'interfaces audio directes et logiciels comme **Rocksmith**, **Reaper**, **FL Studio**, **Ableton Live**, **Cubase**, ou des simulateurs d'amplis (Helix, Neural DSP, Amplitube...).
-- 🔌 **Multi-prises Tasmota** : pilotez une ou plusieurs prises simultanément en parallèle (enceintes gauche/droite indépendantes, caisson de basse, etc.).
-- 💻 **Multiplateforme natif** :
-  - **Windows** : Windows Core Audio (WASAPI) + Peak Meter + ASIO + arrêt propre via fenêtre invisible `WM_QUERYENDSESSION`.
-  - **Linux** : PipeWire, PulseAudio (`pactl`) et ALSA direct (`/proc/asound`) + service `systemd` utilisateur.
-  - **macOS** : CoreAudio assertions (`pmset`) + détection DAW + agent `launchd`.
-- 🔴 **Extinction garantie à l'arrêt du PC** : extinction systématique des prises lors de l'arrêt, redémarrage ou déconnexion.
-- ⚡ **CPU ~ 0%** : le script dort entre chaque vérification et lit directement les variables en mémoire sans traitement audio lourd.
+- 🟢 **Instant Power-On**: Turns your speakers ON immediately when any audio stream is detected (music, video, gaming, DAW, calls...).
+- ⏳ **Configurable Idle Timeout**: Turns plugs OFF automatically after a period of continuous silence (10 minutes by default).
+- 🎛️ **Direct ASIO Support**: Keeps studio monitors ON during direct ASIO sessions, preventing cutoff when playing through low-latency audio interfaces (**Rocksmith**, **Reaper**, **FL Studio**, **Ableton Live**, **Cubase**, amp simulators like Helix, Neural DSP, Amplitube...).
+- 🔌 **Multi-Plug Support**: Control multiple Tasmota smart plugs simultaneously in parallel (e.g. separate left/right studio monitors, subwoofers).
+- 💻 **Cross-Platform Native Support**:
+  - **Windows**: Core Audio (WASAPI) + Master Peak Meter + ASIO process matching + graceful shutdown via invisible `WM_QUERYENDSESSION` window handler.
+  - **Linux**: PipeWire, PulseAudio (`pactl`), and direct ALSA hardware states (`/proc/asound`) + `systemd` user service.
+  - **macOS**: CoreAudio power assertions (`pmset`) + DAW process tracking + `launchd` LaunchAgent.
+- 🔴 **Guaranteed Shutdown Safety**: Intercepts OS shutdown, reboot, and logout events to ensure plugs are turned OFF before the computer powers down.
+- ⚡ **~0.0% CPU Overhead**: Sleeps between polling intervals and reads memory-mapped audio registers without heavy digital signal processing or FFT calculations.
 
 ---
 
-## 📁 Structure du projet
+## 📁 Repository Structure
 
 ```text
 tasmota-speaker-guard/
 │
-├── config.json              # Configuration active (IPs, délais, processus)
-├── config.example.json      # Exemple de configuration par défaut
-├── requirements.txt         # Dépendances Python (PEP 508 multi-OS)
-├── LICENSE                  # Licence MIT
+├── config.json              # Active configuration file (IPs, timeouts, processes)
+├── config.example.json      # Template configuration
+├── requirements.txt         # Python dependencies (with PEP 508 multi-OS markers)
+├── LICENSE                  # MIT License
 │
-├── speaker_guard.py         # Moteur principal multiplateforme & CLI
-├── speaker_guard.pyw        # Lanceur silencieux en arrière-plan (Windows)
+├── speaker_guard.py         # Main cross-platform daemon & CLI tool
+├── speaker_guard.pyw        # Silent background launcher (Windows, no console window)
 │
-├── install_windows.ps1      # Installation démarrage automatique (Windows)
-├── uninstall_windows.ps1    # Désinstallation (Windows)
+├── install_windows.ps1      # Windows autostart installer (Scheduled Task)
+├── uninstall_windows.ps1    # Windows uninstaller
 │
-├── install_linux.sh         # Installation service systemd (Linux)
-├── uninstall_linux.sh       # Désinstallation (Linux)
+├── install_linux.sh         # Linux autostart installer (systemd user service)
+├── uninstall_linux.sh       # Linux uninstaller
 │
-├── install_macos.sh         # Installation LaunchAgent launchd (macOS)
-├── uninstall_macos.sh       # Désinstallation (macOS)
+├── install_macos.sh         # macOS autostart installer (launchd LaunchAgent)
+├── uninstall_macos.sh       # macOS uninstaller
 │
-├── start.bat / stop.bat     # Contrôles rapides (Windows)
-└── test.bat                 # Diagnostic rapide (Windows)
+├── start.bat / stop.bat     # Windows quick start / stop scripts
+└── test.bat                 # Windows quick diagnostic script
 ```
 
 ---
 
 ## ⚙️ Configuration (`config.json`)
 
-Le fichier `config.json` permet de paramétrer le service :
+Adjust behavior easily through `config.json` without modifying any code:
 
 ```json
 {
@@ -91,66 +91,66 @@ Le fichier `config.json` permet de paramétrer le service :
 }
 ```
 
-### Options de configuration :
+### Options Reference:
 
-| Paramètre | Description |
-| :--- | :--- |
-| `tasmota_ips` | Liste des adresses IP des prises Tasmota à contrôler en parallèle. |
-| `timeout_seconds` | Délai de silence en secondes avant extinction automatique (`600` = 10 minutes). |
-| `poll_interval_seconds` | Intervalle de scrutation en secondes (`2.0` recommandé). |
-| `turn_off_on_startup_if_silent` | Si `true`, éteint d'office la prise au démarrage si aucun son n'est joué. |
-| `turn_off_on_shutdown` | Si `true`, force l'extinction des enceintes lors de l'arrêt du PC. |
-| `peak_audio_threshold` | Seuil crête WASAPI pour ignorer les micro-bruits de fond. |
-| `asio_detection_enabled` | Active la surveillance des applications et DAW en mode direct ASIO. |
-| `asio_processes` | Liste des masques de noms d'exécutables considérés comme sources audio actives. |
+| Key | Description | Default |
+| :--- | :--- | :--- |
+| `tasmota_ips` | List of target Tasmota plug IP addresses to control in parallel. | `["192.168.1.19"]` |
+| `timeout_seconds` | Silence duration in seconds before turning plugs OFF. | `600` (10 min) |
+| `poll_interval_seconds` | Audio polling frequency in seconds. | `2.0` |
+| `turn_off_on_startup_if_silent` | If `true`, turns plugs OFF immediately at startup if no audio is playing. | `false` |
+| `turn_off_on_shutdown` | If `true`, sends `Power OFF` when the computer shuts down or logs off. | `true` |
+| `peak_audio_threshold` | Peak amplitude threshold to filter out micro-noise and background hiss. | `0.001` |
+| `asio_detection_enabled` | Enables process surveillance for direct ASIO-exclusive applications. | `true` |
+| `asio_processes` | Executable patterns (case-insensitive wildcards) treated as active audio sources. | *(DAWs & games)* |
 
 ---
 
-## 🚀 Installation & Démarrage automatique
+## 🚀 Installation & Autostart
 
-### 🪟 Sous Windows
+### 🪟 Windows Setup
 
-1. Installez les dépendances :
+1. Install requirements:
    ```powershell
    pip install -r requirements.txt
    ```
-2. Installez le démarrage automatique en tâche de fond (Tâche planifiée) :
+2. Register the silent background Scheduled Task:
    ```powershell
    .\install_windows.ps1
    ```
-   *(Pour désinstaller : `.\uninstall_windows.ps1`)*
+   *(To uninstall: `.\uninstall_windows.ps1`)*
 
-### 🐧 Sous Linux (Ubuntu, Debian, Arch, Fedora)
+### 🐧 Linux Setup (Ubuntu, Debian, Arch, Fedora)
 
-1. Rendez les scripts exécutables et installez le service `systemd` utilisateur :
+1. Make scripts executable and install the `systemd` user service:
    ```bash
    chmod +x *.sh
    ./install_linux.sh
    ```
-2. Le service tourne sous votre session et démarre au boot :
+2. The service starts automatically with your user session:
    ```bash
    systemctl --user status tasmota-speaker-guard.service
    ```
-   *(Pour désinstaller : `./uninstall_linux.sh`)*
+   *(To uninstall: `./uninstall_linux.sh`)*
 
-### 🍏 Sous macOS
+### 🍏 macOS Setup
 
-1. Rendez les scripts exécutables et installez le `LaunchAgent` :
+1. Make scripts executable and load the `launchd` LaunchAgent:
    ```bash
    chmod +x *.sh
    ./install_macos.sh
    ```
-2. Le service est pris en charge par `launchd` :
+2. Verify the agent is active:
    ```bash
    launchctl list | grep tasmotaspeakerguard
    ```
-   *(Pour désinstaller : `./uninstall_macos.sh`)*
+   *(To uninstall: `./uninstall_macos.sh`)*
 
 ---
 
-## 🧪 Diagnostic & Ligne de commande (CLI)
+## 🧪 Diagnostic & CLI Usage
 
-Toutes les options peuvent être surchargées en ligne de commande :
+All configuration values can be overridden via command-line arguments:
 
 ```text
 usage: speaker_guard.py [-h] [--ips IPS [IPS ...]] [--ip IP] [--timeout TIMEOUT]
@@ -159,35 +159,52 @@ usage: speaker_guard.py [-h] [--ips IPS [IPS ...]] [--ip IP] [--timeout TIMEOUT]
                         {run,test,status,on,off}
 ```
 
-### Exemples :
+### Examples:
 
-- **Tester la détection audio et la connectivité des prises :**
+- **Run system and audio diagnostics:**
   ```bash
   python speaker_guard.py test
   ```
-- **Tester avec des IPs spécifiques :**
+- **Test with custom IP addresses:**
   ```bash
   python speaker_guard.py test --ips 192.168.1.19 192.168.1.20
   ```
-- **Afficher le statut actuel des prises :**
+- **Check current power state of all plugs:**
   ```bash
   python speaker_guard.py status
   ```
-- **Allumer manuellement toutes les prises :**
+- **Manually switch all plugs ON:**
   ```bash
   python speaker_guard.py on
   ```
-- **Éteindre manuellement toutes les prises :**
+- **Manually switch all plugs OFF:**
   ```bash
   python speaker_guard.py off
   ```
-- **Lancer avec un délai de 5 minutes (300 secondes) :**
+- **Run daemon with a 5-minute timeout (300 seconds):**
   ```bash
   python speaker_guard.py run --timeout 300
   ```
 
 ---
 
-## 📜 Licence
+## 🛠️ How It Works Under the Hood
 
-Ce projet est sous licence [MIT](LICENSE).
+### Windows WASAPI & ASIO
+Under Windows, standard applications output sound through the Windows Audio Engine (WASAPI). The script queries active session states and reads the master audio endpoint's peak meter.  
+When an application uses direct **ASIO** (such as Rocksmith or DAWs communicating with hardware interfaces like Line 6, Focusrite, RME, etc.), the Windows audio mixer is completely bypassed. The script uses an ultra-fast Win32 toolhelp snapshot (< 10 ms) to track configured ASIO processes and keep the plugs active.
+
+### Linux PipeWire, PulseAudio & ALSA
+The Linux engine inspects audio sink states using `pactl list sinks` (`State: RUNNING`), checks active application streams via `sink-inputs`, and inspects kernel ALSA device status files (`/proc/asound/card*/pcm*p/sub*/status`).
+
+### macOS CoreAudio & Power Assertions
+On macOS, active playback creates system-level power assertions (`pmset -g assertions`) under `coreaudiod`. The daemon monitors these assertions alongside active digital audio workstation processes.
+
+### Shutdown Safety
+On Windows, a hidden top-level window catches `WM_QUERYENDSESSION` and `WM_ENDSESSION` before the OS terminates processes. On Linux and macOS, standard POSIX termination signals (`SIGTERM`, `SIGINT`) trigger the power-off callback prior to system halt.
+
+---
+
+## 📜 License
+
+This project is licensed under the [MIT License](LICENSE).

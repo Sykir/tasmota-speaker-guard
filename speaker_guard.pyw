@@ -1,7 +1,7 @@
 #!/usr/bin/env pythonw
 # -*- coding: utf-8 -*-
 """
-Lanceur silencieux sans fenetre console (background) pour Windows.
+Silent background launcher (no console window) for Windows.
 """
 from speaker_guard import main
 

@@ -3,13 +3,13 @@
 """
 Tasmota Speaker Guard
 ---------------------
-Surveille l'activité audio en temps réel (Windows, Linux, macOS) et pilote
-automatiquement une ou plusieurs prises connectées Tasmota :
-- Allumage instantané dès qu'un flux audio est détecté (WASAPI, ASIO direct, PulseAudio, PipeWire, CoreAudio).
-- Prise en charge des applications directes ASIO (Rocksmith, DAW Reaper/FL/Ableton, plugins guitare...).
-- Extinction automatique après X minutes d'inactivité continue (par défaut 10 min).
-- Extinction garantie à l'arrêt/redémarrage du PC ou fermeture de session.
-- Support multi-prises (liste d'adresses IP Tasmota simultanées).
+Real-time audio activity monitor (Windows, Linux, macOS) that automatically controls
+one or more Tasmota smart plugs powering audio monitors or speakers:
+- Instant power-on when audio playback starts (WASAPI, ASIO direct, PulseAudio, PipeWire, CoreAudio).
+- Support for direct ASIO applications (Rocksmith, DAWs: Reaper, FL Studio, Ableton, amp sims...).
+- Automatic power-off after X minutes of continuous silence (10 min by default).
+- Guaranteed power-off on PC shutdown, reboot, or session logoff.
+- Multi-plug support (concurrent HTTP requests to multiple Tasmota IPs).
 """
 
 import os
@@ -26,15 +26,15 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Tuple, List, Dict, Set
 
-# Requêtes HTTP
+# HTTP client
 import requests
 
-# Détection de l'OS
+# OS detection
 IS_WINDOWS = sys.platform == "win32"
 IS_LINUX = sys.platform.startswith("linux")
 IS_MACOS = sys.platform == "darwin"
 
-# Importations conditionnelles Windows
+# Windows-conditional imports
 if IS_WINDOWS:
     import winreg
     import ctypes
@@ -52,7 +52,7 @@ if IS_WINDOWS:
 else:
     HAS_WIN32 = False
 
-# Répertoire du script
+# Script paths
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG_FILE = SCRIPT_DIR / "config.json"
 
@@ -62,7 +62,7 @@ DEFAULT_CONFIG_FILE = SCRIPT_DIR / "config.json"
 # ==============================================================================
 
 def get_default_config() -> dict:
-    """Retourne la configuration par défaut."""
+    """Returns default configuration values."""
     return {
         "tasmota_ips": ["192.168.1.19"],
         "timeout_seconds": 600,
@@ -95,7 +95,7 @@ def get_default_config() -> dict:
 
 
 def load_config(config_path: Optional[str] = None) -> dict:
-    """Charge la configuration depuis un fichier JSON avec repli sur les valeurs par défaut."""
+    """Loads configuration from JSON file with fallback to defaults."""
     config = get_default_config()
     target_path = Path(config_path) if config_path else DEFAULT_CONFIG_FILE
 
@@ -105,15 +105,14 @@ def load_config(config_path: Optional[str] = None) -> dict:
                 user_conf = json.load(f)
                 config.update(user_conf)
         except Exception as e:
-            logging.warning(f"Erreur de lecture du fichier {target_path}: {e}")
+            logging.warning(f"Error reading configuration file {target_path}: {e}")
 
-    # Rétrocompatibilité : si "tasmota_ip" unique est fourni au lieu de "tasmota_ips"
+    # Backward compatibility: single tasmota_ip instead of tasmota_ips list
     if "tasmota_ip" in config and config["tasmota_ip"]:
         single_ip = config.pop("tasmota_ip")
         if single_ip not in config.get("tasmota_ips", []):
             config.setdefault("tasmota_ips", []).append(single_ip)
 
-    # Assurer que tasmota_ips est toujours une liste
     if isinstance(config.get("tasmota_ips"), str):
         config["tasmota_ips"] = [ip.strip() for ip in config["tasmota_ips"].split(",") if ip.strip()]
 
@@ -121,7 +120,7 @@ def load_config(config_path: Optional[str] = None) -> dict:
 
 
 def setup_logger(config: dict, log_level: str = "INFO"):
-    """Initialise le système de logs (console + fichier optionnel)."""
+    """Configures console and file logging."""
     handlers = [logging.StreamHandler(sys.stdout)]
     if config.get("log_to_file", True):
         log_path = SCRIPT_DIR / config.get("log_file", "speaker_guard.log")
@@ -137,18 +136,18 @@ def setup_logger(config: dict, log_level: str = "INFO"):
 
 
 # ==============================================================================
-# CLIENT TASMOTA MULTI-PRISES
+# MULTI-PLUG TASMOTA CLIENT
 # ==============================================================================
 
 class TasmotaClient:
-    """Gestionnaire HTTP REST pour une ou plusieurs prises Tasmota simultanées."""
+    """Handles HTTP REST communication with one or multiple Tasmota smart plugs."""
 
     def __init__(self, ips: List[str], timeout: float = 2.5):
         self.ips = [ip.strip() for ip in ips if ip.strip()]
         self.timeout = timeout
 
     def _query_ip_state(self, ip: str) -> Tuple[str, Optional[bool]]:
-        """Récupère l'état d'alimentation d'une prise (True = ON, False = OFF, None si erreur)."""
+        """Queries single plug power status (True = ON, False = OFF, None on error)."""
         url = f"http://{ip}/cm?cmnd=Power"
         try:
             res = requests.get(url, timeout=self.timeout)
@@ -157,11 +156,11 @@ class TasmotaClient:
                 power_str = data.get("POWER", "").upper()
                 return ip, (power_str == "ON")
         except Exception as e:
-            logging.debug(f"Impossible de joindre la prise Tasmota ({ip}): {e}")
+            logging.debug(f"Unable to reach Tasmota device ({ip}): {e}")
         return ip, None
 
     def _send_ip_power(self, ip: str, state: bool) -> Tuple[str, bool]:
-        """Envoie l'ordre ON ou OFF à une prise donnée."""
+        """Sends Power ON or OFF command to a specific plug."""
         cmd = "Power ON" if state else "Power OFF"
         url = f"http://{ip}/cm?cmnd={requests.utils.quote(cmd)}"
         try:
@@ -169,11 +168,11 @@ class TasmotaClient:
             if res.status_code == 200:
                 return ip, True
         except Exception as e:
-            logging.error(f"Echec envoi commande '{cmd}' a Tasmota ({ip}): {e}")
+            logging.error(f"Failed to send '{cmd}' to Tasmota ({ip}): {e}")
         return ip, False
 
     def get_power_states(self) -> Dict[str, Optional[bool]]:
-        """Interroge toutes les prises en parallèle."""
+        """Queries all configured plugs concurrently in parallel."""
         results = {}
         if not self.ips:
             return results
@@ -183,12 +182,12 @@ class TasmotaClient:
         return results
 
     def is_any_on(self) -> bool:
-        """Indique si au moins une prise est allumée."""
+        """Returns True if at least one plug is currently turned ON."""
         states = self.get_power_states()
         return any(s is True for s in states.values())
 
     def set_power(self, state: bool) -> Dict[str, bool]:
-        """Bascule toutes les prises en parallèle sur ON ou OFF."""
+        """Switches all configured plugs ON or OFF concurrently in parallel."""
         cmd_str = "ON" if state else "OFF"
         results = {}
         if not self.ips:
@@ -196,13 +195,13 @@ class TasmotaClient:
         with ThreadPoolExecutor(max_workers=min(len(self.ips), 10)) as executor:
             for ip, ok in executor.map(lambda ip: self._send_ip_power(ip, state), self.ips):
                 results[ip] = ok
-                status_txt = "SUCCES" if ok else "ECHEC"
+                status_txt = "SUCCESS" if ok else "FAILED"
                 logging.info(f"Tasmota [{ip}] -> Power {cmd_str} ({status_txt})")
         return results
 
 
 # ==============================================================================
-# DÉTECTEUR AUDIO MULTI-PLATEFORME
+# CROSS-PLATFORM AUDIO DETECTORS
 # ==============================================================================
 
 if IS_WINDOWS:
@@ -222,7 +221,7 @@ if IS_WINDOWS:
 
 
 class WindowsAudioDetector:
-    """Détecteur audio Windows : Core Audio (WASAPI) + Peak Meter + ASIO direct."""
+    """Windows audio detector: Core Audio (WASAPI) + Peak Meter + Direct ASIO."""
 
     def __init__(self, peak_threshold: float = 0.001, asio_patterns: Optional[List[str]] = None):
         self.peak_threshold = peak_threshold
@@ -291,7 +290,7 @@ class WindowsAudioDetector:
         active_apps = []
         is_session_active = False
 
-        # 1. Sessions WASAPI Windows
+        # 1. WASAPI sessions
         try:
             sessions = AudioUtilities.GetAllSessions()
             for s in sessions:
@@ -299,7 +298,7 @@ class WindowsAudioDetector:
                     is_session_active = True
                     active_apps.append(s.Process.name() if s.Process else "System/Other")
         except Exception as e:
-            logging.debug(f"Erreur sessions audio: {e}")
+            logging.debug(f"WASAPI sessions inspection error: {e}")
 
         # 2. Master Peak Meter
         peak_val = 0.0
@@ -310,9 +309,9 @@ class WindowsAudioDetector:
                 meter = p_meter.QueryInterface(IAudioMeterInformation)
                 peak_val = float(meter.GetPeakValue())
         except Exception as e:
-            logging.debug(f"Erreur peak meter: {e}")
+            logging.debug(f"Master peak meter inspection error: {e}")
 
-        # 3. ASIO direct
+        # 3. Direct ASIO applications
         is_asio_active = False
         asio_apps = self.detect_active_asio_apps()
         if asio_apps:
@@ -326,10 +325,10 @@ class WindowsAudioDetector:
 
 class LinuxAudioDetector:
     """
-    Détecteur audio sous Linux :
+    Linux audio detector:
     1. PipeWire / PulseAudio via `pactl list sinks` (State: RUNNING)
-    2. Entrées de mixage `pactl list sink-inputs`
-    3. Fichiers virtuels ALSA (/proc/asound/card*/pcm*/sub*/status)
+    2. Active application streams via `pactl list sink-inputs`
+    3. ALSA hardware device status files (/proc/asound/card*/pcm*/sub*/status)
     """
 
     def __init__(self, asio_patterns: Optional[List[str]] = None):
@@ -339,7 +338,7 @@ class LinuxAudioDetector:
         active_sources = []
         is_playing = False
 
-        # 1. Vérification via pactl (PulseAudio / PipeWire)
+        # 1. Check via pactl (PulseAudio / PipeWire)
         try:
             out = subprocess.check_output(["pactl", "list", "sinks"], stderr=subprocess.DEVNULL, text=True)
             if "State: RUNNING" in out:
@@ -348,7 +347,7 @@ class LinuxAudioDetector:
         except (subprocess.SubprocessError, FileNotFoundError):
             pass
 
-        # 2. Vérification via les flux d'applications sink-inputs
+        # 2. Check active sink-inputs
         if not is_playing:
             try:
                 out = subprocess.check_output(["pactl", "list", "sink-inputs"], stderr=subprocess.DEVNULL, text=True)
@@ -358,7 +357,7 @@ class LinuxAudioDetector:
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
 
-        # 3. Vérification directe ALSA (/proc/asound)
+        # 3. Direct ALSA kernel status inspection (/proc/asound)
         if not is_playing:
             try:
                 for status_file in Path("/proc/asound").glob("card*/pcm*p/sub*/status"):
@@ -370,7 +369,7 @@ class LinuxAudioDetector:
             except Exception:
                 pass
 
-        # 4. Processus DAW Linux (Reaper, Bitwig, Ardour, Jack...)
+        # 4. Linux DAW processes
         try:
             for pat in self.patterns:
                 clean_pat = pat.replace(".exe", "")
@@ -388,9 +387,9 @@ class LinuxAudioDetector:
 
 class MacOSAudioDetector:
     """
-    Détecteur audio sous macOS :
-    1. Assertions de gestion d'alimentation CoreAudio via `pmset -g assertions`
-    2. Processus audio / DAW actifs (Logic Pro, Reaper, Ableton...)
+    macOS audio detector:
+    1. System CoreAudio power assertions via `pmset -g assertions`
+    2. Active DAW audio processes (Logic Pro, Reaper, Ableton...)
     """
 
     def __init__(self, asio_patterns: Optional[List[str]] = None):
@@ -400,17 +399,16 @@ class MacOSAudioDetector:
         active_sources = []
         is_playing = False
 
-        # 1. Inspection des assertions audio du système
+        # 1. Inspect macOS power assertions
         try:
             out = subprocess.check_output(["pmset", "-g", "assertions"], stderr=subprocess.DEVNULL, text=True)
-            # Quand du son joue sous macOS, coreaudiod pose une assertion
             if "coreaudiod" in out and ("PreventUserIdleDisplaySleep" in out or "PreventUserIdleSystemSleep" in out):
                 is_playing = True
                 active_sources.append("CoreAudio [coreaudiod active]")
         except (subprocess.SubprocessError, FileNotFoundError):
             pass
 
-        # 2. Processus DAW / Logiciels de son sous macOS
+        # 2. Check DAW processes on macOS
         daw_names = ["Logic Pro", "Ableton Live", "REAPER", "FL Studio", "GarageBand", "MainStage"]
         for p in self.patterns:
             clean_name = p.replace(".exe", "").replace("*", "")
@@ -432,7 +430,7 @@ class MacOSAudioDetector:
 
 
 def create_audio_detector(config: dict):
-    """Instancie le détecteur audio adapté au système d'exploitation."""
+    """Instantiates the appropriate audio detector for the current operating system."""
     patterns = config.get("asio_processes", []) if config.get("asio_detection_enabled", True) else []
     if IS_WINDOWS:
         return WindowsAudioDetector(
@@ -444,15 +442,15 @@ def create_audio_detector(config: dict):
     elif IS_MACOS:
         return MacOSAudioDetector(asio_patterns=patterns)
     else:
-        raise NotImplementedError(f"Systeme d'exploitation non supporte: {sys.platform}")
+        raise NotImplementedError(f"Unsupported operating system: {sys.platform}")
 
 
 # ==============================================================================
-# GESTION DES SIGNAUX & ARRÊT SYSTÈME
+# SYSTEM SHUTDOWN LISTENER
 # ==============================================================================
 
 class WindowsShutdownListener:
-    """Interception des messages de shutdown/reboot sous Windows via fenêtre invisible."""
+    """Catches Windows shutdown/reboot/logoff events via a hidden top-level window."""
 
     def __init__(self, on_shutdown_cb):
         self.on_shutdown_cb = on_shutdown_cb
@@ -469,15 +467,15 @@ class WindowsShutdownListener:
                     0, 0, 0, 0, 0, 0, 0, 0, None
                 )
             except Exception as e:
-                logging.warning(f"Impossible d'enregistrer la fenetre Win32: {e}")
+                logging.warning(f"Unable to register Win32 listener window: {e}")
 
     def _wnd_proc(self, hwnd, msg, wparam, lparam):
         if msg in (win32con.WM_QUERYENDSESSION, win32con.WM_ENDSESSION):
-            logging.info("Interception signal Windows EndSession/Shutdown...")
+            logging.info("Caught Windows EndSession/Shutdown signal...")
             try:
                 self.on_shutdown_cb()
             except Exception as e:
-                logging.error(f"Erreur callback shutdown: {e}")
+                logging.error(f"Error during shutdown callback: {e}")
             return 1
         return win32gui.DefWindowProc(hwnd, msg, wparam, lparam)
 
@@ -490,11 +488,11 @@ class WindowsShutdownListener:
 
 
 # ==============================================================================
-# DAEMON PRINCIPAL
+# MAIN DAEMON
 # ==============================================================================
 
 class SpeakerGuardDaemon:
-    """Boucle principale de surveillance et pilotage des enceintes."""
+    """Main orchestration daemon for monitoring audio and switching smart plugs."""
 
     def __init__(self, config: dict):
         self.config = config
@@ -511,7 +509,6 @@ class SpeakerGuardDaemon:
         self.last_sound_time = time.time()
         self.current_power_state: Optional[bool] = None
 
-        # Gestion de l'arrêt
         self.shutdown_listener = WindowsShutdownListener(self.handle_system_shutdown) if IS_WINDOWS else None
         self._register_signals()
 
@@ -522,62 +519,62 @@ class SpeakerGuardDaemon:
 
         if IS_WINDOWS and HAS_WIN32:
             def console_ctrl_handler(ctrl_type):
-                logging.info(f"Signal console recu: {ctrl_type}")
+                logging.info(f"Console control signal received: {ctrl_type}")
                 self.handle_system_shutdown()
                 return True
             win32api.SetConsoleCtrlHandler(console_ctrl_handler, True)
 
     def _signal_handler(self, signum, frame):
-        logging.info(f"Signal d'interruption recu ({signum}).")
+        logging.info(f"Interrupt signal caught ({signum}).")
         self.is_running = False
         self.handle_system_shutdown()
         sys.exit(0)
 
     def handle_system_shutdown(self):
-        """Coupe toutes les prises à l'arrêt du PC ou fermeture du script."""
+        """Emergency turn-off on system shutdown or process exit."""
         if not self.turn_off_on_shutdown:
             return
-        logging.info("Extinction de securite des enceintes Tasmota...")
+        logging.info("Executing safety power-off on Tasmota plugs...")
         try:
             self.tasmota.set_power(False)
         except Exception as e:
-            logging.error(f"Erreur extinction shutdown: {e}")
+            logging.error(f"Error during shutdown power-off: {e}")
 
     def run(self):
-        """Lance la boucle continue de détection audio."""
+        """Runs the main surveillance loop."""
         ips_str = ", ".join(self.tasmota.ips)
         logging.info("=========================================")
-        logging.info("   Demarrage de Tasmota Speaker Guard    ")
-        logging.info(f"   OS: {sys.platform}")
-        logging.info(f"   Prises Tasmota: {ips_str}")
-        logging.info(f"   Delai d'extinction: {self.timeout_sec}s ({self.timeout_sec / 60:.1f} min)")
+        logging.info("     Starting Tasmota Speaker Guard      ")
+        logging.info(f"   Platform: {sys.platform}")
+        logging.info(f"   Tasmota Plugs: {ips_str}")
+        logging.info(f"   Silence Timeout: {self.timeout_sec}s ({self.timeout_sec / 60:.1f} min)")
         logging.info("=========================================")
 
-        # Synchronisation de l'état initial
+        # Initial plug status sync
         self.current_power_state = self.tasmota.is_any_on()
-        state_str = "AU MOINS UNE ALLUMEE" if self.current_power_state else "TOUTES ETEINTES"
-        logging.info(f"Statut initial des prises: {state_str}")
+        state_str = "AT LEAST ONE ON" if self.current_power_state else "ALL OFF"
+        logging.info(f"Initial plug state: {state_str}")
 
-        # Détection initiale
+        # Initial audio check
         is_playing, peak, active_sources = self.audio.get_audio_status()
         now = time.time()
 
         if is_playing:
             self.last_sound_time = now
             if not self.current_power_state:
-                logging.info(f"Audio detecte au lancement ({', '.join(active_sources)}) -> Allumage des prises.")
+                logging.info(f"Audio detected at startup ({', '.join(active_sources)}) -> Powering ON.")
                 self.tasmota.set_power(True)
                 self.current_power_state = True
         else:
             self.last_sound_time = now
             if self.config.get("turn_off_on_startup_if_silent", False) and self.current_power_state:
-                logging.info("Aucun flux audio au boot -> Extinction par defaut.")
+                logging.info("No audio at boot -> Turning OFF plugs.")
                 self.tasmota.set_power(False)
                 self.current_power_state = False
 
-        logging.info("Surveillance audio en cours...")
+        logging.info("Audio monitoring in progress...")
 
-        # Boucle principale
+        # Continuous loop
         while self.is_running:
             try:
                 if self.shutdown_listener:
@@ -589,107 +586,105 @@ class SpeakerGuardDaemon:
                 if is_playing:
                     self.last_sound_time = now
                     if not self.current_power_state:
-                        logging.info(f"Son detecte ({', '.join(active_sources) or 'Flux actif'}) -> Allumage enceintes.")
+                        logging.info(f"Sound detected ({', '.join(active_sources) or 'Active Stream'}) -> Powering ON speakers.")
                         self.tasmota.set_power(True)
                         self.current_power_state = True
                 else:
                     if self.current_power_state:
                         elapsed = now - self.last_sound_time
                         if elapsed >= self.timeout_sec:
-                            logging.info(f"Silence depuis {elapsed:.0f}s (seuil {self.timeout_sec:.0f}s atteint) -> Extinction enceintes.")
+                            logging.info(f"Silence for {elapsed:.0f}s (threshold {self.timeout_sec:.0f}s reached) -> Turning OFF speakers.")
                             self.tasmota.set_power(False)
                             self.current_power_state = False
 
                 time.sleep(self.poll_interval)
 
             except Exception as e:
-                logging.error(f"Erreur inattendue dans la boucle principale: {e}")
+                logging.error(f"Unexpected error in main monitoring loop: {e}")
                 time.sleep(self.poll_interval)
 
 
 # ==============================================================================
-# DIAGNOSTIC & CLI
+# CLI & DIAGNOSTICS
 # ==============================================================================
 
 def cli_test(config: dict):
-    """Exécute un diagnostic complet du système."""
-    print("\n--- Diagnostic Tasmota Speaker Guard ---")
+    """Runs a complete system diagnostic."""
+    print("\n--- Tasmota Speaker Guard Diagnostic ---")
     tasmota = TasmotaClient(config.get("tasmota_ips", []), timeout=config.get("http_timeout_seconds", 2.5))
     audio = create_audio_detector(config)
 
-    print(f"OS detecte : {sys.platform}")
-    print(f"1. Test connexion prise(s) Tasmota ({', '.join(tasmota.ips)})...")
+    print(f"Platform: {sys.platform}")
+    print(f"1. Testing connection to Tasmota plug(s) ({', '.join(tasmota.ips)})...")
     states = tasmota.get_power_states()
     for ip, state in states.items():
         if state is None:
-            print(f"   [{ip}] [ERREUR] Inaccessible")
+            print(f"   [{ip}] [ERROR] Unreachable")
         else:
-            print(f"   [{ip}] [OK] Etat: {'ALLUMEE (ON)' if state else 'ETEINTE (OFF)'}")
+            print(f"   [{ip}] [OK] State: {'ON' if state else 'OFF'}")
 
-    print("\n2. Test de detection audio...")
+    print("\n2. Testing audio detection...")
     if IS_WINDOWS and hasattr(audio, 'installed_asio_drivers'):
-        print(f"   Pilotes ASIO Windows detectes :")
+        print(f"   Windows ASIO drivers detected:")
         for d in audio.installed_asio_drivers:
             print(f"     * {d['name']} ({d['desc']}) [{d['hive']}]")
 
     is_playing, peak, sources = audio.get_audio_status()
-    print(f"   - Audio actif detecte : {'OUI' if is_playing else 'NON'}")
+    print(f"   - Active audio detected : {'YES' if is_playing else 'NO'}")
     if IS_WINDOWS:
-        print(f"   - Niveau crête Master Peak (WASAPI) : {peak:.5f}")
-    print(f"   - Source(s) active(s) : {', '.join(sources) if sources else 'Aucune'}")
+        print(f"   - WASAPI Master Peak level : {peak:.5f}")
+    print(f"   - Active sound source(s) : {', '.join(sources) if sources else 'None'}")
     print("----------------------------------------\n")
 
 
 def build_cli_parser() -> argparse.ArgumentParser:
-    """Construit les arguments de ligne de commande."""
+    """Builds CLI argument parser."""
     parser = argparse.ArgumentParser(
-        description="Gestionnaire intelligent d'alimentation des enceintes via prises Tasmota."
+        description="Smart audio-reactive power manager for Tasmota smart plugs."
     )
     parser.add_argument(
         "action",
         nargs="?",
         default="run",
         choices=["run", "test", "status", "on", "off"],
-        help="Action a executer : run (defaut), test, status, on, off"
+        help="Action to execute: run (default), test, status, on, off"
     )
     parser.add_argument(
         "--ips",
         nargs="+",
-        help="Une ou plusieurs adresses IP Tasmota separees par un espace ou une virgule (ex: --ips 192.168.1.19 192.168.1.20)"
+        help="One or more Tasmota IP addresses separated by space or comma (e.g. --ips 192.168.1.19 192.168.1.20)"
     )
     parser.add_argument(
         "--ip",
-        help="Adresse IP Tasmota unique (alternative a --ips)"
+        help="Single Tasmota IP address (convenience alternative to --ips)"
     )
     parser.add_argument(
         "--timeout",
         type=float,
-        help="Delai d'inactivite en secondes avant extinction (ex: 600)"
+        help="Silence timeout in seconds before power-off (e.g. 600)"
     )
     parser.add_argument(
         "--interval",
         type=float,
-        help="Intervalle de verification en secondes (ex: 2.0)"
+        help="Polling interval in seconds (e.g. 2.0)"
     )
     parser.add_argument(
         "--config",
-        help="Chemin vers un fichier de configuration alternatif (JSON)"
+        help="Path to an alternative JSON configuration file"
     )
     parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Niveau de detail des logs"
+        help="Logging detail level"
     )
     return parser
 
 
 def parse_args():
-    """Gere le parsing robuste des arguments, y compris quand l'action est placee apres des options."""
     parser = build_cli_parser()
     args = parser.parse_args()
 
-    # Si l'utilisateur a passe des IPs avec des virgules ex: --ips 192.168.1.19,192.168.1.20
     if args.ips:
         flattened = []
         for item in args.ips:
@@ -703,11 +698,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-
-    # Chargement de la config
     config = load_config(args.config)
 
-    # Surcharge via les arguments CLI
     if args.ips:
         config["tasmota_ips"] = args.ips
     elif args.ip:
@@ -732,15 +724,15 @@ def main():
         tasmota = TasmotaClient(config.get("tasmota_ips", []))
         states = tasmota.get_power_states()
         for ip, state in states.items():
-            print(f"Tasmota [{ip}]: {'ON' if state else 'OFF' if state is not None else 'INACCESSIBLE'}")
+            print(f"Tasmota [{ip}]: {'ON' if state else 'OFF' if state is not None else 'UNREACHABLE'}")
     elif action == "on":
         tasmota = TasmotaClient(config.get("tasmota_ips", []))
         tasmota.set_power(True)
-        print("Toutes les prises ont recu l'ordre d'allumage.")
+        print("All plugs received the Power ON command.")
     elif action == "off":
         tasmota = TasmotaClient(config.get("tasmota_ips", []))
         tasmota.set_power(False)
-        print("Toutes les prises ont recu l'ordre d'extinction.")
+        print("All plugs received the Power OFF command.")
 
 
 if __name__ == "__main__":
